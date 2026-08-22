@@ -22,6 +22,7 @@ app.use("/api/timetable", require("./routes/timetable"));
 app.use("/api/exams", require("./routes/exams"));
 app.use("/api/matieres", require("./routes/matieres"));
 app.use("/api/settings", require("./routes/settings").router);
+app.use("/api/mon-espace", require("./routes/portail-eleve"));
 
 // Erreurs non interceptées (ex : upload multer trop volumineux) -> réponse JSON propre
 app.use((err, req, res, next) => {

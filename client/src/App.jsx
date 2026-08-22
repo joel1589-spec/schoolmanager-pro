@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Routes, Route, NavLink, Navigate } from "react-router-dom";
 import Dashboard from "./pages/Dashboard.jsx";
 import Students from "./pages/Students.jsx";
@@ -11,25 +12,21 @@ import Matieres from "./pages/Matieres.jsx";
 import FeuilleNotes from "./pages/FeuilleNotes.jsx";
 import Settings from "./pages/Settings.jsx";
 import Ecoles from "./pages/Ecoles.jsx";
+import EspaceEleve from "./pages/EspaceEleve.jsx";
 import Login from "./pages/Login.jsx";
 import { useAuth } from "./AuthContext";
 import { api } from "./api";
 
-function Shell({ links, brandEyebrow, children }) {
+function Shell({ links, brandName, brandEyebrow, children }) {
   const { user, logout } = useAuth();
   return (
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand-eyebrow">{brandEyebrow}</div>
-        <div className="brand">SchoolManager Pro</div>
+        <div className="brand">{brandName}</div>
         <nav style={{ marginTop: 18, flex: 1 }}>
           {links.map((l) => (
-            <NavLink
-              key={l.to}
-              to={l.to}
-              end={l.end}
-              className={({ isActive }) => "nav-link" + (isActive ? " active" : "")}
-            >
+            <NavLink key={l.to} to={l.to} end={l.end} className={({ isActive }) => "nav-link" + (isActive ? " active" : "")}>
               {l.label}
             </NavLink>
           ))}
@@ -42,11 +39,7 @@ function Shell({ links, brandEyebrow, children }) {
               ⭳ Exporter les données
             </a>
           )}
-          <button
-            className="nav-link"
-            style={{ width: "100%", textAlign: "left", background: "transparent", border: "none", fontSize: "0.82rem", padding: "6px 12px" }}
-            onClick={logout}
-          >
+          <button className="nav-link" style={{ width: "100%", textAlign: "left", background: "transparent", border: "none", fontSize: "0.82rem", padding: "6px 12px" }} onClick={logout}>
             ↩ Déconnexion
           </button>
         </div>
@@ -56,43 +49,41 @@ function Shell({ links, brandEyebrow, children }) {
   );
 }
 
-// Le SuperAdmin gère la plateforme (liste des écoles) — pas rattaché à un établissement,
-// il n'a donc pas accès aux pages "métier" (élèves, notes, etc.) d'une école en particulier.
 function SuperAdminApp() {
   return (
-    <Shell brandEyebrow="Plateforme" links={[{ to: "/", label: "Écoles", end: true }]}>
-      <Routes>
-        <Route path="*" element={<Ecoles />} />
-      </Routes>
+    <Shell brandEyebrow="Plateforme" brandName="SchoolManager Pro" links={[{ to: "/", label: "Écoles", end: true }]}>
+      <Routes><Route path="*" element={<Ecoles />} /></Routes>
     </Shell>
   );
 }
 
 function EcoleApp() {
   const { user } = useAuth();
+  const [ecoleName, setEcoleName] = useState(null);
 
-  const links = [
-    { to: "/", label: "Tableau de bord", end: true },
-    { to: "/eleves", label: "Élèves" },
-    { to: "/notes-rapides", label: "Feuille de notes" },
+  useEffect(() => { api.getSettings().then((s) => setEcoleName(s.Nom)).catch(() => setEcoleName("SchoolManager Pro")); }, []);
+
+  const links = [{ to: "/", label: "Tableau de bord", end: true }, { to: "/eleves", label: "Élèves" }];
+  if (user.role === "Enseignant") links.push({ to: "/notes-rapides", label: "Feuille de notes" });
+  links.push(
     { to: "/resultats", label: "Résultats & classement" },
     { to: "/enseignants", label: "Enseignants" },
     { to: "/emploi-du-temps", label: "Emploi du temps" },
     { to: "/examens", label: "Examens" },
     { to: "/matieres", label: "Matières" },
-  ];
+  );
   if (user.role === "Administrateur") {
     links.push({ to: "/utilisateurs", label: "Comptes utilisateurs" });
     links.push({ to: "/parametres", label: "Paramètres établissement" });
   }
 
   return (
-    <Shell brandEyebrow="Établissement" links={links}>
+    <Shell brandEyebrow="Établissement" brandName={ecoleName || "…"}>
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/eleves" element={<Students />} />
         <Route path="/eleves/:id" element={<StudentDetail />} />
-        <Route path="/notes-rapides" element={<FeuilleNotes />} />
+        {user.role === "Enseignant" && <Route path="/notes-rapides" element={<FeuilleNotes />} />}
         <Route path="/resultats" element={<Results />} />
         <Route path="/enseignants" element={<Teachers />} />
         <Route path="/emploi-du-temps" element={<Timetable />} />
@@ -105,10 +96,19 @@ function EcoleApp() {
   );
 }
 
+function EleveApp() {
+  return (
+    <Shell brandEyebrow="Espace élève" brandName="SchoolManager Pro" links={[{ to: "/", label: "Mon espace", end: true }]}>
+      <Routes><Route path="*" element={<EspaceEleve />} /></Routes>
+    </Shell>
+  );
+}
+
 export default function App() {
   const { user } = useAuth();
 
   if (!user) return <Login />;
   if (user.role === "SuperAdmin") return <SuperAdminApp />;
+  if (user.role === "Eleve") return <EleveApp />;
   return <EcoleApp />;
 }

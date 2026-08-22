@@ -15,18 +15,24 @@ function appreciationMatiere(note) {
   return "Excellent";
 }
 
-async function buildContext(idEleve, etablissementId) {
+async function buildContext(idEleve, etablissementId, periodeParam) {
   const eleveRes = await query(
     `SELECT id AS "ID", nom AS "Nom", prenom AS "Prenom", niveau AS "Niveau", classe AS "Classe",
-            serie AS "Serie", annee AS "Annee", trimestre AS "Trimestre"
+            serie AS "Serie", annee AS "Annee"
      FROM eleves WHERE id = $1 AND etablissement_id = $2`,
     [idEleve, etablissementId]
   );
   const eleve = eleveRes.rows[0];
   if (!eleve) return null;
 
+  const settings = await getSettingsRaw(etablissementId);
+  const periode = periodeParam || settings.periode_actuelle;
+
   const matieres = await getMatieresFor({ etablissementId, niveau: eleve.Niveau, classe: eleve.Classe, serie: eleve.Serie });
-  const notesRes = await query(`SELECT * FROM notes WHERE id_eleve = $1 AND etablissement_id = $2`, [eleve.ID, etablissementId]);
+  const notesRes = await query(
+    `SELECT * FROM notes WHERE id_eleve = $1 AND etablissement_id = $2 AND periode = $3`,
+    [eleve.ID, etablissementId, periode]
+  );
   const notes = notesRes.rows;
 
   const lignes = await Promise.all(matieres.map(async (m) => {
@@ -34,7 +40,7 @@ async function buildContext(idEleve, etablissementId) {
     const noteGenerale = note ? Number(note.note_generale) || 0 : 0;
     const noteFinale = note ? Number(note.note_finale) || 0 : noteGenerale * Number(m.Coefficient);
     const rang = (eleve.Niveau !== "Primaire" && note)
-      ? await rangMatiere({ idEleve: eleve.ID, matiere: m.Nom, niveau: eleve.Niveau, classe: eleve.Classe, serie: eleve.Serie, etablissementId })
+      ? await rangMatiere({ idEleve: eleve.ID, matiere: m.Nom, niveau: eleve.Niveau, classe: eleve.Classe, serie: eleve.Serie, etablissementId, periode })
       : null;
     return {
       matiere: m.Nom, categorie: m.Categorie, coefficient: Number(m.Coefficient),
@@ -44,18 +50,36 @@ async function buildContext(idEleve, etablissementId) {
     };
   }));
 
-  const moyenne = Math.round((await moyenneEleve(eleve.ID, eleve.Niveau, etablissementId)) * 100) / 100;
+  const moyenne = Math.round((await moyenneEleve(eleve.ID, eleve.Niveau, etablissementId, periode)) * 100) / 100;
   const mention = getMention(moyenne);
   const decision = moyenne >= 10 ? "Admis(e)" : "Non admis(e) — Peut mieux faire";
-  const classementRows = await classement({ etablissementId, niveau: eleve.Niveau, classe: eleve.Classe, serie: eleve.Serie });
+  const classementRows = await classement({ etablissementId, niveau: eleve.Niveau, classe: eleve.Classe, serie: eleve.Serie, periode });
   const rangClasse = classementRows.find((e) => Number(e.ID) === Number(eleve.ID));
-  const stats = await classStats({ etablissementId, niveau: eleve.Niveau, classe: eleve.Classe, serie: eleve.Serie });
-  const settings = await getSettingsRaw(etablissementId);
+  const stats = await classStats({ etablissementId, niveau: eleve.Niveau, classe: eleve.Classe, serie: eleve.Serie, periode });
+
+  // Rappel des moyennes des périodes précédentes de l'année + moyenne annuelle (comme sur un vrai bulletin)
+  const periodesRes = await query(
+    `SELECT DISTINCT periode FROM notes WHERE id_eleve = $1 AND etablissement_id = $2`,
+    [eleve.ID, etablissementId]
+  );
+  const autresPeriodes = periodesRes.rows.map((r) => r.periode).filter((p) => p !== periode);
+  const rappelMoyennes = [];
+  for (const p of autresPeriodes) {
+    const m = Math.round((await moyenneEleve(eleve.ID, eleve.Niveau, etablissementId, p)) * 100) / 100;
+    rappelMoyennes.push({ periode: p, moyenne: m });
+  }
+  const toutesMoyennes = [...rappelMoyennes.map((r) => r.moyenne), moyenne];
+  const moyenneAnnuelle = toutesMoyennes.length > 1
+    ? Math.round((toutesMoyennes.reduce((a, b) => a + b, 0) / toutesMoyennes.length) * 100) / 100
+    : null;
 
   const totalCoef = lignes.reduce((a, l) => a + l.coefficient, 0);
   const totalPoints = Math.round(lignes.reduce((a, l) => a + l.noteFinale, 0) * 100) / 100;
 
-  return { eleve, lignes, moyenne, mention, decision, rangClasse, stats, settings, totalCoef, totalPoints };
+  return {
+    eleve, lignes, moyenne, mention, decision, rangClasse, stats, settings, totalCoef, totalPoints,
+    periode, rappelMoyennes, moyenneAnnuelle,
+  };
 }
 
 function drawHeader(doc, ctx, titre) {
@@ -87,7 +111,7 @@ function drawHeader(doc, ctx, titre) {
 
   doc.font("Helvetica-Bold").fontSize(12).text(titre, 40, y, { width: 515, align: "center" });
   doc.fontSize(9).font("Helvetica").text(
-    `Année scolaire ${eleve.Annee || ""} — ${eleve.Trimestre || ""}`,
+    `Année scolaire ${eleve.Annee || ""} — ${ctx.periode}`,
     40, doc.y + 3, { width: 515, align: "center" }
   );
   doc.y += 10;
@@ -168,13 +192,24 @@ function buildPrive(doc, ctx) {
   doc.y = y + 24;
 
   doc.font("Helvetica-Bold").fontSize(10).text(
-    `Moyenne du semestre : ${ctx.moyenne} / 20      Rang : ${ctx.rangClasse ? ctx.rangClasse.rang : "-"} / ${ctx.stats.effectif}      Mention : ${ctx.mention}`,
+    `Moyenne du ${ctx.periode} : ${ctx.moyenne} / 20      Rang : ${ctx.rangClasse ? ctx.rangClasse.rang : "-"} / ${ctx.stats.effectif}      Mention : ${ctx.mention}`,
     40, doc.y + 8
   );
   doc.font("Helvetica").fontSize(8).text(
     `Moy. min classe : ${ctx.stats.min}      Moy. max classe : ${ctx.stats.max}      Moy. classe : ${ctx.stats.moyenneClasse}`,
     40, doc.y + 4
   );
+
+  if (ctx.rappelMoyennes.length > 0 || ctx.moyenneAnnuelle !== null) {
+    doc.font("Helvetica-Bold").fontSize(9).text("Rappel des moyennes", 40, doc.y + 14);
+    doc.font("Helvetica").fontSize(8.5);
+    for (const r of ctx.rappelMoyennes) {
+      doc.text(`Moyenne du ${r.periode} : ${r.moyenne} / 20`, 40, doc.y + 3);
+    }
+    if (ctx.moyenneAnnuelle !== null) {
+      doc.font("Helvetica-Bold").text(`Moyenne annuelle : ${ctx.moyenneAnnuelle} / 20`, 40, doc.y + 5);
+    }
+  }
 
   doc.font("Helvetica-Bold").fontSize(9).text("Observations et décision du conseil de classe", 40, doc.y + 16);
   doc.font("Helvetica").fontSize(9).text(ctx.decision, 40, doc.y + 4);
@@ -232,7 +267,7 @@ function buildPublic(doc, ctx) {
   doc.y = y + 24;
 
   doc.font("Helvetica-Bold").fontSize(10).text(
-    `Moyenne du semestre : ${ctx.moyenne} / 20      Rang : ${ctx.rangClasse ? ctx.rangClasse.rang : "-"} / ${ctx.stats.effectif}`,
+    `Moyenne du ${ctx.periode} : ${ctx.moyenne} / 20      Rang : ${ctx.rangClasse ? ctx.rangClasse.rang : "-"} / ${ctx.stats.effectif}`,
     40, doc.y + 6
   );
   doc.font("Helvetica").fontSize(8).text(
@@ -241,14 +276,25 @@ function buildPublic(doc, ctx) {
   );
   doc.font("Helvetica-Bold").fontSize(9).text(`Mention : ${ctx.mention}`, 40, doc.y + 8);
 
+  if (ctx.rappelMoyennes.length > 0 || ctx.moyenneAnnuelle !== null) {
+    doc.font("Helvetica-Bold").fontSize(9).text("Rappel des moyennes", 40, doc.y + 12);
+    doc.font("Helvetica").fontSize(8.5);
+    for (const r of ctx.rappelMoyennes) {
+      doc.text(`Moyenne du ${r.periode} : ${r.moyenne} / 20`, 40, doc.y + 3);
+    }
+    if (ctx.moyenneAnnuelle !== null) {
+      doc.font("Helvetica-Bold").text(`Moyenne annuelle : ${ctx.moyenneAnnuelle} / 20`, 40, doc.y + 5);
+    }
+  }
+
   doc.font("Helvetica-Bold").fontSize(9).text("Décision du conseil de classe", 40, doc.y + 14);
   doc.font("Helvetica").fontSize(9).text(ctx.decision, 40, doc.y + 4);
 
   drawSignatures(doc, ctx, "Le Professeur Titulaire");
 }
 
-async function genererBulletinPDF(idEleve, etablissementId, res) {
-  const ctx = await buildContext(idEleve, etablissementId);
+async function genererBulletinPDF(idEleve, etablissementId, periode, res) {
+  const ctx = await buildContext(idEleve, etablissementId, periode);
   if (!ctx) { res.status(404).json({ error: "Élève introuvable" }); return; }
 
   const doc = new PDFDocument({ size: "A4", margin: 40 });

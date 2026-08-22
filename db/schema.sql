@@ -143,3 +143,34 @@ CREATE INDEX IF NOT EXISTS idx_edt_etab ON emploi_du_temps(etablissement_id);
 CREATE INDEX IF NOT EXISTS idx_examens_etab ON examens(etablissement_id);
 CREATE INDEX IF NOT EXISTS idx_matieres_etab ON matieres(etablissement_id);
 CREATE INDEX IF NOT EXISTS idx_matieres_lookup ON matieres(etablissement_id, niveau, classe, serie);
+
+-- ============================================================================
+-- MIGRATION : périodes (trimestre/semestre), comptes élèves, portail élève
+-- Ce bloc est idempotent (peut être ré-exécuté sans risque sur une base existante).
+-- ============================================================================
+
+-- Une note appartient désormais à une période précise (1er Trimestre, 2e Semestre, ...)
+-- au lieu d'être une valeur unique et permanente par matière.
+ALTER TABLE notes ADD COLUMN IF NOT EXISTS periode TEXT NOT NULL DEFAULT '1er Trimestre';
+DROP INDEX IF EXISTS idx_notes_eleve_matiere_unique;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_notes_eleve_matiere_periode
+  ON notes(etablissement_id, id_eleve, matiere, periode);
+
+-- Période actuellement active pour une école (sert de valeur par défaut à la saisie)
+ALTER TABLE etablissements ADD COLUMN IF NOT EXISTS periode_actuelle TEXT NOT NULL DEFAULT '1er Trimestre';
+
+-- Un compte utilisateur peut désormais être un élève (auto-créé à son inscription)
+-- ou, plus tard, un parent.
+ALTER TABLE utilisateurs ADD COLUMN IF NOT EXISTS id_eleve INTEGER;
+DO $$ BEGIN
+  ALTER TABLE utilisateurs ADD CONSTRAINT fk_utilisateurs_eleve
+    FOREIGN KEY (id_eleve) REFERENCES eleves(id) ON DELETE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+CREATE INDEX IF NOT EXISTS idx_utilisateurs_eleve ON utilisateurs(id_eleve);
+
+-- Permet au Super Administrateur de suspendre temporairement l'accès à une école
+-- (ex : problème à régler) sans supprimer ses données.
+ALTER TABLE etablissements ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT true;
+
+

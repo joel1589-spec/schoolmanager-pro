@@ -10,7 +10,7 @@ router.use(requireAuth, requireRole("Administrateur", "Enseignant"));
 
 function toNoteJson(n) {
   return {
-    ID: n.id, IDEleve: n.id_eleve, Matiere: n.matiere, Interro: Number(n.interro),
+    ID: n.id, IDEleve: n.id_eleve, Matiere: n.matiere, Periode: n.periode, Interro: Number(n.interro),
     Devoir: Number(n.devoir), Composition: Number(n.composition), Coefficient: Number(n.coefficient),
     NoteGenerale: Number(n.note_generale), NoteFinale: Number(n.note_finale),
     Professeur: n.professeur, Absences: n.absences,
@@ -40,29 +40,39 @@ async function checkAccess(req, res, idEleve) {
 // ---------- Notes par élève (fiche élève) ----------
 
 router.get("/", async (req, res) => {
-  const { idEleve } = req.query;
+  const { idEleve, periode } = req.query;
   if (idEleve && !(await checkAccess(req, res, idEleve))) return;
-  const r = idEleve
-    ? await query("SELECT * FROM notes WHERE id_eleve = $1 AND etablissement_id = $2", [idEleve, req.user.etablissementId])
-    : await query("SELECT * FROM notes WHERE etablissement_id = $1", [req.user.etablissementId]);
+  const conditions = ["etablissement_id = $1"];
+  const params = [req.user.etablissementId];
+  if (idEleve) { params.push(idEleve); conditions.push(`id_eleve = $${params.length}`); }
+  if (periode) { params.push(periode); conditions.push(`periode = $${params.length}`); }
+  const r = await query(`SELECT * FROM notes WHERE ${conditions.join(" AND ")}`, params);
   res.json(r.rows.map(toNoteJson));
 });
 
-router.post("/", async (req, res) => {
-  const { IDEleve, Matiere, Interro, Devoir, Composition, Coefficient, Professeur, Absences } = req.body;
-  if (!IDEleve || !Matiere) return res.status(400).json({ error: "IDEleve et Matiere sont requis" });
+// Création d'une note : réservée aux enseignants (Module 4) — l'administrateur peut
+// corriger une note existante (PUT) mais ne saisit pas les notes initiales lui-même.
+router.post("/", requireRole("Enseignant"), async (req, res) => {
+  const { IDEleve, Matiere, Periode, Interro, Devoir, Composition, Coefficient, Professeur, Absences } = req.body;
+  if (!IDEleve || !Matiere || !Periode) return res.status(400).json({ error: "IDEleve, Matiere et Periode sont requis" });
   if (!(await checkAccess(req, res, IDEleve))) return;
 
   const { noteGenerale, noteFinale } = calculerNote({ interro: Interro, devoir: Devoir, composition: Composition, coefficient: Coefficient });
   const r = await query(
-    `INSERT INTO notes (etablissement_id, id_eleve, matiere, interro, devoir, composition, coefficient, note_generale, note_finale, professeur, absences)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
-    [req.user.etablissementId, IDEleve, Matiere, Interro || 0, Devoir || 0, Composition || 0, Coefficient || 1,
+    `INSERT INTO notes (etablissement_id, id_eleve, matiere, periode, interro, devoir, composition, coefficient, note_generale, note_finale, professeur, absences)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+     ON CONFLICT (etablissement_id, id_eleve, matiere, periode)
+     DO UPDATE SET interro=EXCLUDED.interro, devoir=EXCLUDED.devoir, composition=EXCLUDED.composition,
+       coefficient=EXCLUDED.coefficient, note_generale=EXCLUDED.note_generale, note_finale=EXCLUDED.note_finale,
+       professeur=EXCLUDED.professeur, absences=EXCLUDED.absences
+     RETURNING *`,
+    [req.user.etablissementId, IDEleve, Matiere, Periode, Interro || 0, Devoir || 0, Composition || 0, Coefficient || 1,
       Math.round(noteGenerale * 100) / 100, Math.round(noteFinale * 100) / 100, Professeur || "", Absences || 0]
   );
   res.status(201).json(toNoteJson(r.rows[0]));
 });
 
+// Modification d'une note existante : Administrateur (correction) ou Enseignant
 router.put("/:id", async (req, res) => {
   const existingRes = await query("SELECT * FROM notes WHERE id = $1 AND etablissement_id = $2", [req.params.id, req.user.etablissementId]);
   const existing = existingRes.rows[0];
@@ -94,9 +104,11 @@ router.delete("/:id", async (req, res) => {
 });
 
 // ---------- Feuille de notes collective (saisie par classe entière) ----------
-// Le professeur choisit Niveau + Classe + Série + Matière + type d'évaluation
+// Le professeur choisit Niveau + Classe + Série + Matière + Période + type d'évaluation
 // (Interro / Devoir / Composition), voit tous les élèves de la classe déjà listés,
 // et enregistre toutes les valeurs en une seule fois — comme sur une vraie feuille papier.
+// Réservé aux enseignants : c'est le prof qui remplit les notes initiales, l'administrateur
+// corrige ensuite si besoin depuis la fiche de l'élève.
 
 async function teacherCanAccessClass(req, { niveau, classe, serie, matiere }) {
   const affectations = await getAffectationsForUser(req.user);
@@ -109,9 +121,9 @@ async function teacherCanAccessClass(req, { niveau, classe, serie, matiere }) {
 }
 
 router.get("/feuille", async (req, res) => {
-  const { niveau, classe, serie, matiere } = req.query;
-  if (!niveau || !classe || !matiere) {
-    return res.status(400).json({ error: "Niveau, classe et matière sont requis" });
+  const { niveau, classe, serie, matiere, periode } = req.query;
+  if (!niveau || !classe || !matiere || !periode) {
+    return res.status(400).json({ error: "Niveau, classe, matière et période sont requis" });
   }
   if (!(await teacherCanAccessClass(req, { niveau, classe, serie, matiere }))) {
     return res.status(403).json({ error: "Vous n'êtes pas affecté à cette classe/matière" });
@@ -132,8 +144,8 @@ router.get("/feuille", async (req, res) => {
   );
 
   const notesRes = await query(
-    `SELECT * FROM notes WHERE etablissement_id = $1 AND matiere = $2 AND id_eleve = ANY($3::int[])`,
-    [req.user.etablissementId, matiere, elevesRes.rows.map((e) => e.ID)]
+    `SELECT * FROM notes WHERE etablissement_id = $1 AND matiere = $2 AND periode = $3 AND id_eleve = ANY($4::int[])`,
+    [req.user.etablissementId, matiere, periode, elevesRes.rows.map((e) => e.ID)]
   );
   const notesByEleve = Object.fromEntries(notesRes.rows.map((n) => [n.id_eleve, n]));
 
@@ -149,10 +161,10 @@ router.get("/feuille", async (req, res) => {
   res.json({ matiere: matiereInfo, eleves });
 });
 
-router.post("/feuille", async (req, res) => {
-  const { Niveau, Classe, Serie, Matiere, Champ, Professeur, Valeurs } = req.body;
-  if (!Niveau || !Classe || !Matiere || !Champ || !Array.isArray(Valeurs)) {
-    return res.status(400).json({ error: "Niveau, classe, matière, champ et valeurs sont requis" });
+router.post("/feuille", requireRole("Enseignant"), async (req, res) => {
+  const { Niveau, Classe, Serie, Matiere, Periode, Champ, Professeur, Valeurs } = req.body;
+  if (!Niveau || !Classe || !Matiere || !Periode || !Champ || !Array.isArray(Valeurs)) {
+    return res.status(400).json({ error: "Niveau, classe, matière, période, champ et valeurs sont requis" });
   }
   if (!["Interro", "Devoir", "Composition"].includes(Champ)) {
     return res.status(400).json({ error: "Champ invalide (Interro, Devoir ou Composition attendu)" });
@@ -175,8 +187,8 @@ router.post("/feuille", async (req, res) => {
       if (valeur === "" || valeur === null || valeur === undefined) continue;
 
       const existingRes = await client.query(
-        "SELECT * FROM notes WHERE etablissement_id = $1 AND id_eleve = $2 AND matiere = $3",
-        [req.user.etablissementId, idEleve, Matiere]
+        "SELECT * FROM notes WHERE etablissement_id = $1 AND id_eleve = $2 AND matiere = $3 AND periode = $4",
+        [req.user.etablissementId, idEleve, Matiere, Periode]
       );
       const existing = existingRes.rows[0];
       const interro = champColonne === "interro" ? valeur : (existing ? existing.interro : 0);
@@ -192,9 +204,9 @@ router.post("/feuille", async (req, res) => {
         );
       } else {
         await client.query(
-          `INSERT INTO notes (etablissement_id, id_eleve, matiere, interro, devoir, composition, coefficient, note_generale, note_finale, professeur)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-          [req.user.etablissementId, idEleve, Matiere, interro, devoir, composition, coefficient,
+          `INSERT INTO notes (etablissement_id, id_eleve, matiere, periode, interro, devoir, composition, coefficient, note_generale, note_finale, professeur)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+          [req.user.etablissementId, idEleve, Matiere, Periode, interro, devoir, composition, coefficient,
             Math.round(noteGenerale * 100) / 100, Math.round(noteFinale * 100) / 100, Professeur || ""]
         );
       }

@@ -7,7 +7,7 @@ const router = express.Router();
 function toUserJson(u) {
   return {
     id: u.id, nom: u.nom, identifiant: u.identifiant, role: u.role,
-    idEnseignant: u.id_enseignant || "", etablissementId: u.etablissement_id || null,
+    idEnseignant: u.id_enseignant || "", idEleve: u.id_eleve || "", etablissementId: u.etablissement_id || null,
   };
 }
 
@@ -41,14 +41,22 @@ router.post("/bootstrap", async (req, res) => {
 
 router.post("/login", async (req, res) => {
   const { Identifiant, MotDePasse } = req.body;
-  const r = await query("SELECT * FROM utilisateurs WHERE identifiant = $1", [Identifiant]);
+  const r = await query(
+    `SELECT u.*, e.active AS etab_active, e.nom AS etab_nom
+     FROM utilisateurs u LEFT JOIN etablissements e ON e.id = u.etablissement_id
+     WHERE u.identifiant = $1`,
+    [Identifiant]
+  );
   const user = r.rows[0];
   if (!user || !verifyPassword(MotDePasse || "", user.mot_de_passe_hash, user.mot_de_passe_sel)) {
     return res.status(401).json({ error: "Identifiant ou mot de passe incorrect" });
   }
+  if (user.etablissement_id && user.etab_active === false) {
+    return res.status(403).json({ error: "Cet établissement est temporairement suspendu. Contactez l'administrateur de la plateforme." });
+  }
   const token = createToken({
     id: user.id, identifiant: user.identifiant, nom: user.nom, role: user.role,
-    etablissementId: user.etablissement_id || null,
+    etablissementId: user.etablissement_id || null, idEnseignant: user.id_enseignant || null, idEleve: user.id_eleve || null,
   });
   res.json({ token, user: toUserJson(user) });
 });

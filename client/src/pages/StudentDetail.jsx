@@ -7,75 +7,76 @@ const EMPTY_ATT = { Date: new Date().toISOString().slice(0, 10), Heure: "", Stat
 
 export default function StudentDetail() {
   const { user } = useAuth();
+  const isTeacher = user?.role === "Enseignant";
+  const isAdmin = user?.role === "Administrateur";
   const { id } = useParams();
   const [student, setStudent] = useState(null);
+  const [settings, setSettings] = useState(null);
+  const [periode, setPeriode] = useState("");
   const [notes, setNotes] = useState([]);
   const [attendance, setAttendance] = useState([]);
   const [stats, setStats] = useState(null);
-  const [matieres, setMatieres] = useState([]);
-  const [selectedMatiere, setSelectedMatiere] = useState("");
-  const [noteValues, setNoteValues] = useState({ Interro: "", Devoir: "", Composition: "", Professeur: "" });
+  const [matieresDisponibles, setMatieresDisponibles] = useState([]);
+  const [noteForm, setNoteForm] = useState(null);
+  const [editingNoteId, setEditingNoteId] = useState(null);
   const [attForm, setAttForm] = useState(EMPTY_ATT);
   const [error, setError] = useState("");
 
-  function load() {
-    api.getStudent(id).then((s) => {
+  useEffect(() => { api.getSettings().then(setSettings); }, []);
+
+  function load(p) {
+    api.getStudent(id, p).then((s) => {
       setStudent(s);
-      api.getMatieres({ niveau: s.Niveau, classe: s.Classe, serie: s.Serie || "" }).then(setMatieres);
+      if (!p) setPeriode(s.periode);
     }).catch((e) => setError(e.message));
-    api.getNotes(id).then(setNotes);
+    api.getNotes(id, p).then(setNotes);
     api.getAttendance(id).then(setAttendance);
     api.getAttendanceStats(id).then(setStats);
   }
+  useEffect(() => { if (periode) load(periode); }, [id, periode]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!periode && student) setPeriode(student.periode); }, [student]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(load, [id]);
-
-  const isPrimaire = student?.Niveau === "Primaire";
-  const notedMatieres = new Set(notes.map((n) => n.Matiere));
-  const availableMatieres = matieres.filter((m) => !notedMatieres.has(m.Nom));
-  const selected = matieres.find((m) => m.Nom === selectedMatiere);
+  useEffect(() => {
+    if (!student) return;
+    const params = { niveau: student.Niveau, classe: student.Classe };
+    if (student.Serie) params.serie = student.Serie;
+    api.getMatieres(params).then(setMatieresDisponibles);
+  }, [student]);
 
   async function addNote(e) {
     e.preventDefault();
-    if (!selected) return;
     try {
-      const payload = {
-        IDEleve: Number(id),
-        Matiere: selected.Nom,
-        Coefficient: selected.Coefficient,
-        Professeur: noteValues.Professeur,
-        Interro: isPrimaire ? noteValues.Interro : noteValues.Interro,
-        Devoir: isPrimaire ? noteValues.Interro : noteValues.Devoir,
-        Composition: isPrimaire ? noteValues.Interro : noteValues.Composition,
-      };
-      await api.createNote(payload);
-      setSelectedMatiere("");
-      setNoteValues({ Interro: "", Devoir: "", Composition: "", Professeur: "" });
-      load();
+      await api.createNote({ ...noteForm, IDEleve: Number(id), Periode: periode });
+      setNoteForm(null);
+      load(periode);
     } catch (err) { alert(err.message); }
   }
 
-  async function removeNote(noteId) {
-    await api.deleteNote(noteId);
-    load();
+  async function saveEditNote(n) {
+    try {
+      await api.updateNote(n.ID, { Interro: n.Interro, Devoir: n.Devoir, Composition: n.Composition });
+      setEditingNoteId(null);
+      load(periode);
+    } catch (err) { alert(err.message); }
   }
+
+  async function removeNote(noteId) { await api.deleteNote(noteId); load(periode); }
 
   async function addAttendance(e) {
     e.preventDefault();
     try {
       await api.createAttendance({ ...attForm, IDEleve: Number(id) });
       setAttForm(EMPTY_ATT);
-      load();
+      load(periode);
     } catch (err) { alert(err.message); }
   }
-
-  async function removeAttendance(recId) {
-    await api.deleteAttendance(recId);
-    load();
-  }
+  async function removeAttendance(recId) { await api.deleteAttendance(recId); load(periode); }
 
   if (error) return <p className="error-text">{error}</p>;
-  if (!student) return <p className="loading">Chargement…</p>;
+  if (!student || !settings) return <p className="loading">Chargement…</p>;
+
+  const isPrimaire = student.Niveau === "Primaire";
+  const matieresNonNotees = matieresDisponibles.filter((m) => !notes.some((n) => n.Matiere === m.Nom));
 
   return (
     <div>
@@ -84,95 +85,109 @@ export default function StudentDetail() {
         <div className="page-eyebrow">Fiche élève</div>
         <h1 className="page-title">{student.Nom} {student.Prenom}</h1>
         <p className="page-subtitle">
-          {student.Niveau} · {student.Classe}{student.Serie ? ` · Série ${student.Serie}` : ""} · Moyenne actuelle : <strong>{Math.round(student.moyenne * 100) / 100} / 20</strong>
+          {student.Niveau} · {student.Classe}{student.Serie ? ` · Série ${student.Serie}` : ""} · Moyenne ({periode}) : <strong>{Math.round(student.moyenne * 100) / 100} / 20</strong>
         </p>
-        {user?.role === "Administrateur" && (
-          <a
-            href={api.bulletinUrl(id)}
-            target="_blank"
-            rel="noreferrer"
-            className="btn btn-brass"
-            style={{ display: "inline-block", marginTop: 12, textDecoration: "none" }}
-          >
-            📄 Générer le bulletin PDF
-          </a>
-        )}
+        <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 12, flexWrap: "wrap" }}>
+          <select value={periode} onChange={(e) => setPeriode(e.target.value)}>
+            {settings.PeriodesDisponibles.map((p) => <option key={p} value={p}>{p}</option>)}
+          </select>
+          {isAdmin && (
+            <a href={api.bulletinUrl(id, periode)} target="_blank" rel="noreferrer" className="btn btn-brass" style={{ textDecoration: "none" }}>
+              📄 Générer le bulletin PDF
+            </a>
+          )}
+        </div>
       </header>
 
       <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 24, alignItems: "start" }}>
         {/* Notes */}
         <div className="card">
-          <h3 style={{ fontFamily: "var(--font-display)", marginTop: 0 }}>Module 4 — Notes</h3>
+          <h3 style={{ fontFamily: "var(--font-display)", marginTop: 0 }}>Module 4 — Notes ({periode})</h3>
+          {!isTeacher && (
+            <p style={{ fontSize: "0.8rem", color: "var(--text-soft)", marginBottom: 12 }}>
+              Les notes sont saisies par l'enseignant de la matière. Vous pouvez corriger une note existante.
+            </p>
+          )}
           <table>
             <thead>
               <tr>
                 <th>Matière</th>
-                {!isPrimaire && <><th>Interro</th><th>Devoir</th><th>Compo</th><th>Coeff</th></>}
+                {!isPrimaire && <><th>Interro</th><th>Devoir</th><th>Compo</th></>}
+                {isPrimaire && <th>Note</th>}
                 <th>Moy.</th>
-                {!isPrimaire && <th>Note finale</th>}
                 <th></th>
               </tr>
             </thead>
             <tbody>
-              {notes.map((n) => (
-                <tr key={n.ID}>
-                  <td>{n.Matiere}</td>
-                  {!isPrimaire && <><td className="mono">{n.Interro}</td><td className="mono">{n.Devoir}</td><td className="mono">{n.Composition}</td><td className="mono">{n.Coefficient}</td></>}
-                  <td className="mono">{n.NoteGenerale}</td>
-                  {!isPrimaire && <td className="mono">{n.NoteFinale}</td>}
-                  <td><button className="btn btn-danger btn-sm" onClick={() => removeNote(n.ID)}>×</button></td>
-                </tr>
-              ))}
+              {notes.map((n) => {
+                const editing = editingNoteId === n.ID;
+                return (
+                  <tr key={n.ID}>
+                    <td>{n.Matiere}</td>
+                    {!isPrimaire ? (
+                      <>
+                        <td>{editing ? <input type="number" step="0.25" style={{ width: 60 }} defaultValue={n.Interro} onChange={(e) => (n._Interro = e.target.value)} /> : n.Interro}</td>
+                        <td>{editing ? <input type="number" step="0.25" style={{ width: 60 }} defaultValue={n.Devoir} onChange={(e) => (n._Devoir = e.target.value)} /> : n.Devoir}</td>
+                        <td>{editing ? <input type="number" step="0.25" style={{ width: 60 }} defaultValue={n.Composition} onChange={(e) => (n._Composition = e.target.value)} /> : n.Composition}</td>
+                      </>
+                    ) : (
+                      <td>{editing ? <input type="number" step="0.25" style={{ width: 60 }} defaultValue={n.Interro} onChange={(e) => (n._Interro = n._Devoir = e.target.value)} /> : n.Interro}</td>
+                    )}
+                    <td className="mono">{n.NoteGenerale}</td>
+                    <td style={{ whiteSpace: "nowrap" }}>
+                      {editing ? (
+                        <button className="btn btn-primary btn-sm" onClick={() => saveEditNote({ ...n, Interro: n._Interro ?? n.Interro, Devoir: n._Devoir ?? n.Devoir, Composition: n._Composition ?? n.Composition })}>✓</button>
+                      ) : (
+                        <button className="btn btn-ghost btn-sm" onClick={() => setEditingNoteId(n.ID)}>✎</button>
+                      )}
+                      {" "}
+                      <button className="btn btn-danger btn-sm" onClick={() => removeNote(n.ID)}>×</button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
 
-          {availableMatieres.length === 0 ? (
-            <p style={{ color: "var(--text-soft)", fontSize: "0.85rem", marginTop: 14 }}>
-              Toutes les matières de cette classe ont déjà une note.{" "}
-              <Link to="/matieres">Gérer les matières</Link>
-            </p>
-          ) : (
-            <form onSubmit={addNote} style={{ marginTop: 16, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "end" }}>
-              <div className="form-field" style={{ flex: "1 1 160px" }}>
-                <label>Matière</label>
-                <select required value={selectedMatiere} onChange={(e) => setSelectedMatiere(e.target.value)}>
-                  <option value="">— Choisir —</option>
-                  {availableMatieres.map((m) => (
-                    <option key={m.ID} value={m.Nom}>{m.Nom} (coef {m.Coefficient})</option>
-                  ))}
-                </select>
-              </div>
-              {!isPrimaire ? (
-                <>
-                  <div className="form-field" style={{ width: 70 }}>
-                    <label>Interro</label>
-                    <input type="number" step="0.25" value={noteValues.Interro} onChange={(e) => setNoteValues({ ...noteValues, Interro: e.target.value })} />
+          {isTeacher && (
+            <div style={{ marginTop: 16 }}>
+              {noteForm ? (
+                <form onSubmit={addNote} style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "end" }}>
+                  <div className="form-field" style={{ flex: "1 1 140px" }}>
+                    <label>Matière</label>
+                    <select required value={noteForm.Matiere} onChange={(e) => setNoteForm({ ...noteForm, Matiere: e.target.value })}>
+                      <option value="">— Choisir —</option>
+                      {matieresNonNotees.map((m) => <option key={m.ID} value={m.Nom}>{m.Nom}</option>)}
+                    </select>
                   </div>
-                  <div className="form-field" style={{ width: 70 }}>
-                    <label>Devoir</label>
-                    <input type="number" step="0.25" value={noteValues.Devoir} onChange={(e) => setNoteValues({ ...noteValues, Devoir: e.target.value })} />
+                  {!isPrimaire ? (
+                    <>
+                      <div className="form-field" style={{ width: 70 }}><label>Interro</label>
+                        <input type="number" step="0.25" value={noteForm.Interro} onChange={(e) => setNoteForm({ ...noteForm, Interro: e.target.value })} /></div>
+                      <div className="form-field" style={{ width: 70 }}><label>Devoir</label>
+                        <input type="number" step="0.25" value={noteForm.Devoir} onChange={(e) => setNoteForm({ ...noteForm, Devoir: e.target.value })} /></div>
+                      <div className="form-field" style={{ width: 70 }}><label>Compo</label>
+                        <input type="number" step="0.25" value={noteForm.Composition} onChange={(e) => setNoteForm({ ...noteForm, Composition: e.target.value })} /></div>
+                    </>
+                  ) : (
+                    <div className="form-field" style={{ width: 80 }}><label>Note /20</label>
+                      <input type="number" step="0.25" value={noteForm.Interro} onChange={(e) => setNoteForm({ ...noteForm, Interro: e.target.value, Devoir: e.target.value })} /></div>
+                  )}
+                  <div className="form-field" style={{ flex: "1 1 120px" }}>
+                    <label>Professeur</label>
+                    <input value={noteForm.Professeur} onChange={(e) => setNoteForm({ ...noteForm, Professeur: e.target.value })} />
                   </div>
-                  <div className="form-field" style={{ width: 70 }}>
-                    <label>Compo</label>
-                    <input type="number" step="0.25" value={noteValues.Composition} onChange={(e) => setNoteValues({ ...noteValues, Composition: e.target.value })} />
-                  </div>
-                  <div className="form-field" style={{ width: 65 }}>
-                    <label>Coeff</label>
-                    <input value={selected ? selected.Coefficient : ""} disabled />
-                  </div>
-                </>
+                  <button className="btn btn-primary btn-sm" type="submit">Ajouter</button>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => setNoteForm(null)}>Annuler</button>
+                </form>
               ) : (
-                <div className="form-field" style={{ width: 80 }}>
-                  <label>Note /20</label>
-                  <input type="number" step="0.25" value={noteValues.Interro} onChange={(e) => setNoteValues({ ...noteValues, Interro: e.target.value })} />
-                </div>
+                matieresNonNotees.length > 0 && (
+                  <button className="btn btn-ghost btn-sm" onClick={() => setNoteForm({ Matiere: "", Interro: "", Devoir: "", Composition: "", Coefficient: 1, Professeur: "" })}>
+                    + Ajouter une note
+                  </button>
+                )
               )}
-              <div className="form-field" style={{ flex: "1 1 120px" }}>
-                <label>Professeur</label>
-                <input value={noteValues.Professeur} onChange={(e) => setNoteValues({ ...noteValues, Professeur: e.target.value })} />
-              </div>
-              <button className="btn btn-primary btn-sm" type="submit">Ajouter</button>
-            </form>
+            </div>
           )}
         </div>
 
@@ -189,9 +204,7 @@ export default function StudentDetail() {
           <form onSubmit={addAttendance} style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
             <input type="date" value={attForm.Date} onChange={(e) => setAttForm({ ...attForm, Date: e.target.value })} />
             <select value={attForm.Statut} onChange={(e) => setAttForm({ ...attForm, Statut: e.target.value })}>
-              <option>Présent</option>
-              <option>Absent</option>
-              <option>Retard</option>
+              <option>Présent</option><option>Absent</option><option>Retard</option>
             </select>
             <button className="btn btn-primary btn-sm" type="submit">Enregistrer</button>
           </form>
@@ -200,11 +213,7 @@ export default function StudentDetail() {
               {attendance.slice(0, 8).map((a) => (
                 <tr key={a.ID}>
                   <td className="mono">{a.Date}</td>
-                  <td>
-                    <span className={`badge ${a.Statut === "Absent" ? "badge-alert" : a.Statut === "Retard" ? "badge-brass" : "badge-sage"}`}>
-                      {a.Statut}
-                    </span>
-                  </td>
+                  <td><span className={`badge ${a.Statut === "Absent" ? "badge-alert" : a.Statut === "Retard" ? "badge-brass" : "badge-sage"}`}>{a.Statut}</span></td>
                   <td><button className="btn btn-danger btn-sm" onClick={() => removeAttendance(a.ID)}>×</button></td>
                 </tr>
               ))}

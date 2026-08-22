@@ -10,10 +10,7 @@ const NIVEAUX_CLASSES = {
 };
 const SERIES = ["A4", "C", "D", "S", "G1", "G2", "G3", "G4", "F1", "F2", "F3", "F4"];
 
-const EMPTY = {
-  Nom: "", Prenom: "", Niveau: "Lycee", Classe: "Terminale", Serie: "D",
-  Annee: "2025-2026", Etablissement: "", Trimestre: "1er Trimestre",
-};
+const EMPTY = { Nom: "", Prenom: "", Niveau: "Lycee", Classe: "Terminale", Serie: "D", Annee: "2025-2026" };
 
 export default function Students() {
   const { user } = useAuth();
@@ -23,9 +20,10 @@ export default function Students() {
   const [niveauFilter, setNiveauFilter] = useState("");
   const [error, setError] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
-  const [editing, setEditing] = useState(null); // null = création
+  const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(EMPTY);
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [credentials, setCredentials] = useState(null); // identifiants générés à afficher après création/réinitialisation
 
   function load() {
     const params = {};
@@ -33,31 +31,23 @@ export default function Students() {
     if (niveauFilter) params.niveau = niveauFilter;
     api.getStudents(params).then(setStudents).catch((e) => setError(e.message));
   }
-
   useEffect(load, [search, niveauFilter]);
 
-  function openCreate() {
-    setEditing(null);
-    setForm(EMPTY);
-    setModalOpen(true);
-  }
-
-  function openEdit(s) {
-    setEditing(s);
-    setForm({ ...EMPTY, ...s });
-    setModalOpen(true);
-  }
+  function openCreate() { setEditing(null); setForm(EMPTY); setModalOpen(true); }
+  function openEdit(s) { setEditing(s); setForm({ ...EMPTY, ...s }); setModalOpen(true); }
 
   async function submitForm(e) {
     e.preventDefault();
     try {
-      if (editing) await api.updateStudent(editing.ID, form);
-      else await api.createStudent(form);
+      if (editing) {
+        await api.updateStudent(editing.ID, form);
+      } else {
+        const res = await api.createStudent(form);
+        if (res.compte) setCredentials({ nom: `${form.Nom} ${form.Prenom}`, ...res.compte });
+      }
       setModalOpen(false);
       load();
-    } catch (err) {
-      alert(err.message);
-    }
+    } catch (err) { alert(err.message); }
   }
 
   async function confirmAndDelete() {
@@ -65,9 +55,15 @@ export default function Students() {
       await api.deleteStudent(confirmDelete.ID);
       setConfirmDelete(null);
       load();
-    } catch (err) {
-      alert(err.message);
-    }
+    } catch (err) { alert(err.message); }
+  }
+
+  async function reinitialiserCompte(s) {
+    if (!confirm(`Générer un nouveau mot de passe pour ${s.Nom} ${s.Prenom} ?`)) return;
+    try {
+      const res = await api.reinitialiserCompteEleve(s.ID);
+      setCredentials({ nom: `${s.Nom} ${s.Prenom}`, ...res });
+    } catch (err) { alert(err.message); }
   }
 
   return (
@@ -75,21 +71,14 @@ export default function Students() {
       <header className="page-header">
         <div className="page-eyebrow">Module 1 — Élèves</div>
         <h1 className="page-title">Gestion des élèves</h1>
-        <p className="page-subtitle">{students.length} élève(s) — classés par nom et prénom.</p>
+        <p className="page-subtitle">{students.length} élève(s) — classés par nom et prénom. Un compte d'accès (notes, examens) est créé automatiquement pour chaque élève inscrit.</p>
       </header>
 
       <div className="toolbar">
-        <input
-          placeholder="Rechercher un nom ou prénom…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          style={{ minWidth: 240 }}
-        />
+        <input placeholder="Rechercher un nom ou prénom…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ minWidth: 240 }} />
         <select value={niveauFilter} onChange={(e) => setNiveauFilter(e.target.value)}>
           <option value="">Tous niveaux</option>
-          {Object.keys(NIVEAUX_CLASSES).map((n) => (
-            <option key={n} value={n}>{n}</option>
-          ))}
+          {Object.keys(NIVEAUX_CLASSES).map((n) => <option key={n} value={n}>{n}</option>)}
         </select>
         {isAdmin && (
           <button className="btn btn-primary" style={{ marginLeft: "auto" }} onClick={openCreate}>
@@ -107,12 +96,7 @@ export default function Students() {
           <table>
             <thead>
               <tr>
-                <th>Nom</th>
-                <th>Prénom</th>
-                <th>Niveau</th>
-                <th>Classe</th>
-                <th>Série</th>
-                <th></th>
+                <th>Nom</th><th>Prénom</th><th>Niveau</th><th>Classe</th><th>Série</th><th></th>
               </tr>
             </thead>
             <tbody>
@@ -128,6 +112,7 @@ export default function Students() {
                     {isAdmin && (
                       <>
                         <button className="btn btn-ghost btn-sm" onClick={() => openEdit(s)}>Modifier</button>{" "}
+                        <button className="btn btn-ghost btn-sm" onClick={() => reinitialiserCompte(s)}>Identifiants</button>{" "}
                         <button className="btn btn-danger btn-sm" onClick={() => setConfirmDelete(s)}>Supprimer</button>
                       </>
                     )}
@@ -183,14 +168,6 @@ export default function Students() {
                   <label>Année scolaire</label>
                   <input value={form.Annee} onChange={(e) => setForm({ ...form, Annee: e.target.value })} />
                 </div>
-                <div className="form-field">
-                  <label>Établissement</label>
-                  <input value={form.Etablissement} onChange={(e) => setForm({ ...form, Etablissement: e.target.value })} />
-                </div>
-                <div className="form-field">
-                  <label>Trimestre / Semestre</label>
-                  <input value={form.Trimestre} onChange={(e) => setForm({ ...form, Trimestre: e.target.value })} />
-                </div>
               </div>
               <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
                 <button type="button" className="btn btn-ghost" onClick={() => setModalOpen(false)}>Annuler</button>
@@ -205,13 +182,28 @@ export default function Students() {
         <div className="modal-backdrop" onClick={() => setConfirmDelete(null)}>
           <div className="modal" style={{ width: 380 }} onClick={(e) => e.stopPropagation()}>
             <h3>Confirmer la suppression</h3>
-            <p>
-              Supprimer définitivement <strong>{confirmDelete.Nom} {confirmDelete.Prenom}</strong> et
-              toutes ses notes/présences ? Cette action est irréversible.
-            </p>
+            <p>Supprimer définitivement <strong>{confirmDelete.Nom} {confirmDelete.Prenom}</strong>, ses notes, présences et son compte d'accès ? Cette action est irréversible.</p>
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
               <button className="btn btn-ghost" onClick={() => setConfirmDelete(null)}>Annuler</button>
               <button className="btn btn-danger" onClick={confirmAndDelete}>Supprimer</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {credentials && (
+        <div className="modal-backdrop" onClick={() => setCredentials(null)}>
+          <div className="modal" style={{ width: 400 }} onClick={(e) => e.stopPropagation()}>
+            <h3>Identifiants de connexion</h3>
+            <p style={{ fontSize: "0.86rem", color: "var(--text-soft)" }}>
+              Pour <strong>{credentials.nom}</strong> — notez ou communiquez ces identifiants dès maintenant, le mot de passe ne sera plus jamais affiché.
+            </p>
+            <div style={{ background: "var(--paper-alt)", borderRadius: 6, padding: 14, margin: "12px 0" }}>
+              <div className="mono" style={{ marginBottom: 6 }}>Identifiant : <strong>{credentials.identifiant}</strong></div>
+              <div className="mono">Mot de passe : <strong>{credentials.motDePasse}</strong></div>
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button className="btn btn-primary" onClick={() => setCredentials(null)}>J'ai noté</button>
             </div>
           </div>
         </div>

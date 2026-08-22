@@ -14,9 +14,11 @@ const CHAMPS = [
 ];
 
 export default function FeuilleNotes() {
+  const [settings, setSettings] = useState(null);
   const [niveau, setNiveau] = useState("Lycee");
   const [classe, setClasse] = useState("Terminale");
   const [serie, setSerie] = useState("D");
+  const [periode, setPeriode] = useState("");
   const [matieresDisponibles, setMatieresDisponibles] = useState([]);
   const [matiere, setMatiere] = useState("");
   const [champ, setChamp] = useState("Interro");
@@ -29,7 +31,8 @@ export default function FeuilleNotes() {
 
   const isLycee = niveau === "Lycee";
 
-  // Charge la liste des matières disponibles pour la classe choisie
+  useEffect(() => { api.getSettings().then((s) => { setSettings(s); setPeriode(s.PeriodeActuelle); }); }, []);
+
   useEffect(() => {
     const params = { niveau, classe };
     if (isLycee) params.serie = serie;
@@ -41,10 +44,9 @@ export default function FeuilleNotes() {
   }, [niveau, classe, serie]);
 
   function loadFeuille() {
-    if (!matiere) return;
-    setError("");
-    setSavedMsg("");
-    const params = { niveau, classe, matiere };
+    if (!matiere || !periode) return;
+    setError(""); setSavedMsg("");
+    const params = { niveau, classe, matiere, periode };
     if (isLycee) params.serie = serie;
     api.getFeuilleNotes(params).then((data) => {
       setEleves(data.eleves);
@@ -53,10 +55,8 @@ export default function FeuilleNotes() {
       setValeurs(initial);
     }).catch((e) => setError(e.message));
   }
+  useEffect(loadFeuille, [matiere, periode]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(loadFeuille, [matiere]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Quand on change de type d'évaluation, recharge les valeurs déjà saisies pour ce champ
   useEffect(() => {
     if (eleves.length === 0) return;
     const initial = {};
@@ -67,13 +67,12 @@ export default function FeuilleNotes() {
 
   async function submit(e) {
     e.preventDefault();
-    setSaving(true);
-    setSavedMsg("");
+    setSaving(true); setSavedMsg("");
     try {
       const Valeurs = Object.entries(valeurs)
         .filter(([, v]) => v !== "" && v !== null && v !== undefined)
         .map(([idEleve, valeur]) => ({ idEleve: Number(idEleve), valeur: Number(valeur) }));
-      const payload = { Niveau: niveau, Classe: classe, Matiere: matiere, Champ: champ, Professeur: professeur, Valeurs };
+      const payload = { Niveau: niveau, Classe: classe, Matiere: matiere, Periode: periode, Champ: champ, Professeur: professeur, Valeurs };
       if (isLycee) payload.Serie = serie;
       const res = await api.saveFeuilleNotes(payload);
       setSavedMsg(`${res.count} note(s) enregistrée(s).`);
@@ -82,18 +81,23 @@ export default function FeuilleNotes() {
     finally { setSaving(false); }
   }
 
+  if (!settings) return <p className="loading">Chargement…</p>;
+
   return (
     <div>
       <header className="page-header">
         <div className="page-eyebrow">Module 4 — Saisie rapide</div>
         <h1 className="page-title">Feuille de notes</h1>
         <p className="page-subtitle">
-          Choisissez la classe, la matière et le type d'évaluation : la liste des élèves apparaît,
+          Choisissez la période, la classe, la matière et le type d'évaluation : la liste des élèves apparaît,
           il ne reste qu'à remplir chaque note et enregistrer en une fois.
         </p>
       </header>
 
       <div className="toolbar" style={{ flexWrap: "wrap" }}>
+        <select value={periode} onChange={(e) => setPeriode(e.target.value)}>
+          {settings.PeriodesDisponibles.map((p) => <option key={p} value={p}>{p}</option>)}
+        </select>
         <select value={niveau} onChange={(e) => { setNiveau(e.target.value); setClasse(NIVEAUX_CLASSES[e.target.value][0]); }}>
           {Object.keys(NIVEAUX_CLASSES).map((n) => <option key={n} value={n}>{n}</option>)}
         </select>
@@ -127,9 +131,7 @@ export default function FeuilleNotes() {
               <thead>
                 <tr>
                   <th>Élève</th>
-                  <th style={{ width: 140 }}>
-                    {niveau === "Primaire" ? "Note /20" : CHAMPS.find((c) => c.value === champ)?.label}
-                  </th>
+                  <th style={{ width: 140 }}>{niveau === "Primaire" ? "Note /20" : CHAMPS.find((c) => c.value === champ)?.label}</th>
                   <th style={{ width: 100 }}>Moy. actuelle</th>
                 </tr>
               </thead>

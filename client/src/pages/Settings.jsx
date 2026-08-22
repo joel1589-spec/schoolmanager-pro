@@ -69,6 +69,18 @@ export default function Settings() {
             </div>
 
             <div className="form-field" style={{ marginBottom: 12 }}>
+              <label>Période actuelle (trimestre / semestre en cours)</label>
+              <select value={form.PeriodeActuelle} onChange={(e) => setForm({ ...form, PeriodeActuelle: e.target.value })}>
+                {(form.PeriodesDisponibles || ["1er Trimestre", "2e Trimestre", "3e Trimestre", "1er Semestre", "2e Semestre"]).map((p) => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+              </select>
+              <p style={{ fontSize: "0.76rem", color: "var(--text-soft)", marginTop: 4 }}>
+                Sert de valeur par défaut à la saisie des notes et au tableau de bord. Changez-la quand l'école passe à la période suivante.
+              </p>
+            </div>
+
+            <div className="form-field" style={{ marginBottom: 12 }}>
               <label>Ministère (ligne d'en-tête)</label>
               <input value={form.Ministere} onChange={(e) => setForm({ ...form, Ministere: e.target.value })} />
             </div>

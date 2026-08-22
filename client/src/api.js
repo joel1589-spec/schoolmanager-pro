@@ -40,10 +40,11 @@ export const api = {
     const q = new URLSearchParams(params).toString();
     return request(`/students${q ? `?${q}` : ""}`);
   },
-  getStudent: (id) => request(`/students/${id}`),
+  getStudent: (id, periode) => request(`/students/${id}${periode ? `?periode=${encodeURIComponent(periode)}` : ""}`),
   createStudent: (data) => request("/students", { method: "POST", body: JSON.stringify(data) }),
   updateStudent: (id, data) => request(`/students/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   deleteStudent: (id) => request(`/students/${id}`, { method: "DELETE" }),
+  reinitialiserCompteEleve: (id) => request(`/students/${id}/compte/reinitialiser`, { method: "POST" }),
 
   // Référence
   getNiveaux: () => request("/reference/niveaux"),
@@ -55,7 +56,7 @@ export const api = {
   deleteMatiere: (id) => request(`/matieres/${id}`, { method: "DELETE" }),
 
   // Notes
-  getNotes: (idEleve) => request(`/notes?idEleve=${idEleve}`),
+  getNotes: (idEleve, periode) => request(`/notes?idEleve=${idEleve}${periode ? `&periode=${encodeURIComponent(periode)}` : ""}`),
   createNote: (data) => request("/notes", { method: "POST", body: JSON.stringify(data) }),
   updateNote: (id, data) => request(`/notes/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   deleteNote: (id) => request(`/notes/${id}`, { method: "DELETE" }),
@@ -98,7 +99,7 @@ export const api = {
   updateExam: (id, data) => request(`/exams/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   deleteExam: (id) => request(`/exams/${id}`, { method: "DELETE" }),
 
-  bulletinUrl: (idEleve) => `${BASE}/bulletin/${idEleve}?token=${encodeURIComponent(getToken() || "")}`,
+  bulletinUrl: (idEleve, periode) => `${BASE}/bulletin/${idEleve}?token=${encodeURIComponent(getToken() || "")}${periode ? `&periode=${encodeURIComponent(periode)}` : ""}`,
   exportUrl: () => `${BASE}/export?token=${encodeURIComponent(getToken() || "")}`,
   getToken,
 
@@ -127,8 +128,13 @@ export const api = {
   createEcole: (data) => request("/ecoles", { method: "POST", body: JSON.stringify(data) }),
   updateEcole: (id, data) => request(`/ecoles/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   deleteEcole: (id) => request(`/ecoles/${id}`, { method: "DELETE" }),
+  getEcoleComptes: (id) => request(`/ecoles/${id}/comptes`),
+  reinitialiserCompteEcole: (ecoleId, userId) => request(`/ecoles/${ecoleId}/comptes/${userId}/reinitialiser`, { method: "POST" }),
 
   // Feuille de notes collective (saisie par classe entière)
   getFeuilleNotes: (params) => request(`/notes/feuille?${new URLSearchParams(params)}`),
   saveFeuilleNotes: (data) => request("/notes/feuille", { method: "POST", body: JSON.stringify(data) }),
+
+  // Espace élève
+  getMonEspace: () => request("/mon-espace"),
 };

@@ -14,12 +14,12 @@ function calculerNote({ interro, devoir, composition, coefficient }) {
   return { noteGenerale, noteFinale };
 }
 
-// Moyenne générale d'un élève (Module 5)
-async function moyenneEleve(idEleve, niveau, etablissementId) {
+// Moyenne générale d'un élève pour UNE période donnée (Module 5)
+async function moyenneEleve(idEleve, niveau, etablissementId, periode) {
   const res = await query(
     `SELECT note_generale AS "NoteGenerale", note_finale AS "NoteFinale", coefficient
-     FROM notes WHERE id_eleve = $1 AND etablissement_id = $2`,
-    [idEleve, etablissementId]
+     FROM notes WHERE id_eleve = $1 AND etablissement_id = $2 AND periode = $3`,
+    [idEleve, etablissementId, periode]
   );
   const notes = res.rows;
   if (notes.length === 0) return 0;
@@ -33,8 +33,8 @@ async function moyenneEleve(idEleve, niveau, etablissementId) {
   return sommeCoeffs > 0 ? sommeFinales / sommeCoeffs : 0;
 }
 
-// Classement automatique par niveau/classe/série, au sein d'un établissement (Module 6)
-async function classement({ etablissementId, niveau, classe, serie }) {
+// Classement automatique par niveau/classe/série, pour une période, au sein d'un établissement (Module 6)
+async function classement({ etablissementId, niveau, classe, serie, periode }) {
   const conditions = ["etablissement_id = $1"];
   const params = [etablissementId];
   if (niveau) { params.push(niveau); conditions.push(`niveau = $${params.length}`); }
@@ -43,7 +43,7 @@ async function classement({ etablissementId, niveau, classe, serie }) {
 
   const res = await query(
     `SELECT id AS "ID", nom AS "Nom", prenom AS "Prenom", niveau AS "Niveau", classe AS "Classe",
-            serie AS "Serie", annee AS "Annee", trimestre AS "Trimestre"
+            serie AS "Serie", annee AS "Annee"
      FROM eleves WHERE ${conditions.join(" AND ")}`,
     params
   );
@@ -51,7 +51,7 @@ async function classement({ etablissementId, niveau, classe, serie }) {
   const avecMoyenne = await Promise.all(
     res.rows.map(async (e) => ({
       ...e,
-      moyenne: Math.round((await moyenneEleve(e.ID, e.Niveau, etablissementId)) * 100) / 100,
+      moyenne: Math.round((await moyenneEleve(e.ID, e.Niveau, etablissementId, periode)) * 100) / 100,
     }))
   );
   avecMoyenne.sort((a, b) => b.moyenne - a.moyenne);
@@ -59,9 +59,9 @@ async function classement({ etablissementId, niveau, classe, serie }) {
   return avecMoyenne.map((e, i) => ({ ...e, rang: i + 1, mention: getMention(e.moyenne) }));
 }
 
-// Statistiques de la classe pour le bulletin (effectif, moyenne, min, max)
-async function classStats({ etablissementId, niveau, classe, serie }) {
-  const rows = await classement({ etablissementId, niveau, classe, serie });
+// Statistiques de la classe pour le bulletin (effectif, moyenne, min, max), pour une période
+async function classStats({ etablissementId, niveau, classe, serie, periode }) {
+  const rows = await classement({ etablissementId, niveau, classe, serie, periode });
   const moyennes = rows.map((r) => r.moyenne);
   return {
     effectif: rows.length,
@@ -71,8 +71,8 @@ async function classStats({ etablissementId, niveau, classe, serie }) {
   };
 }
 
-// Rang d'un élève dans une matière donnée, au sein de sa classe (bulletin format "privé")
-async function rangMatiere({ idEleve, matiere, niveau, classe, serie, etablissementId }) {
+// Rang d'un élève dans une matière donnée, au sein de sa classe, pour une période (bulletin format "privé")
+async function rangMatiere({ idEleve, matiere, niveau, classe, serie, etablissementId, periode }) {
   const conditions = ["etablissement_id = $1", "niveau = $2", "classe = $3"];
   const params = [etablissementId, niveau, classe];
   if (serie) { params.push(serie); conditions.push(`serie = $${params.length}`); }
@@ -82,8 +82,8 @@ async function rangMatiere({ idEleve, matiere, niveau, classe, serie, etablissem
   const avecNote = await Promise.all(
     eleves.rows.map(async (e) => {
       const noteRes = await query(
-        `SELECT note_generale FROM notes WHERE id_eleve = $1 AND etablissement_id = $2 AND matiere = $3`,
-        [e.ID, etablissementId, matiere]
+        `SELECT note_generale FROM notes WHERE id_eleve = $1 AND etablissement_id = $2 AND matiere = $3 AND periode = $4`,
+        [e.ID, etablissementId, matiere, periode]
       );
       return { id: e.ID, note: noteRes.rows[0] ? Number(noteRes.rows[0].note_generale) || 0 : 0 };
     })

@@ -16,10 +16,13 @@ const upload = multer({
   },
 });
 
+const PERIODES_DISPONIBLES = ["1er Trimestre", "2e Trimestre", "3e Trimestre", "1er Semestre", "2e Semestre"];
+
 function toSettingsJson(e, hasLogo) {
   return {
     ID: e.id, Nom: e.nom, Type: e.type, Ministere: e.ministere, DirectionRegionale: e.direction_regionale,
-    IESG: e.iesg, Adresse: e.adresse, Telephone: e.telephone, BP: e.bp,
+    IESG: e.iesg, Adresse: e.adresse, Telephone: e.telephone, BP: e.bp, PeriodeActuelle: e.periode_actuelle,
+    PeriodesDisponibles: PERIODES_DISPONIBLES,
     NiveauxActifs: e.niveaux_actifs, logoUrl: hasLogo ? "/api/settings/logo" : "",
   };
 }
@@ -27,7 +30,7 @@ function toSettingsJson(e, hasLogo) {
 router.get("/", requireAuth, async (req, res) => {
   if (!req.user.etablissementId) return res.status(403).json({ error: "Aucun établissement associé à ce compte" });
   const r = await query(
-    "SELECT id, nom, type, ministere, direction_regionale, iesg, adresse, telephone, bp, niveaux_actifs, (logo IS NOT NULL) AS has_logo FROM etablissements WHERE id = $1",
+    "SELECT id, nom, type, ministere, direction_regionale, iesg, adresse, telephone, bp, niveaux_actifs, periode_actuelle, (logo IS NOT NULL) AS has_logo FROM etablissements WHERE id = $1",
     [req.user.etablissementId]
   );
   if (!r.rows.length) return res.status(404).json({ error: "Établissement introuvable" });
@@ -35,15 +38,16 @@ router.get("/", requireAuth, async (req, res) => {
 });
 
 router.put("/", requireAuth, requireRole("Administrateur"), async (req, res) => {
-  const { Nom, Type, Ministere, DirectionRegionale, IESG, Adresse, Telephone, BP } = req.body;
+  const { Nom, Type, Ministere, DirectionRegionale, IESG, Adresse, Telephone, BP, PeriodeActuelle } = req.body;
   const r = await query(
     `UPDATE etablissements SET
        nom=COALESCE($1,nom), type=COALESCE($2,type), ministere=COALESCE($3,ministere),
        direction_regionale=COALESCE($4,direction_regionale), iesg=COALESCE($5,iesg),
-       adresse=COALESCE($6,adresse), telephone=COALESCE($7,telephone), bp=COALESCE($8,bp)
-     WHERE id = $9
-     RETURNING id, nom, type, ministere, direction_regionale, iesg, adresse, telephone, bp, niveaux_actifs, (logo IS NOT NULL) AS has_logo`,
-    [Nom, Type, Ministere, DirectionRegionale, IESG, Adresse, Telephone, BP, req.user.etablissementId]
+       adresse=COALESCE($6,adresse), telephone=COALESCE($7,telephone), bp=COALESCE($8,bp),
+       periode_actuelle=COALESCE($9,periode_actuelle)
+     WHERE id = $10
+     RETURNING id, nom, type, ministere, direction_regionale, iesg, adresse, telephone, bp, niveaux_actifs, periode_actuelle, (logo IS NOT NULL) AS has_logo`,
+    [Nom, Type, Ministere, DirectionRegionale, IESG, Adresse, Telephone, BP, PeriodeActuelle, req.user.etablissementId]
   );
   if (!r.rows.length) return res.status(404).json({ error: "Établissement introuvable" });
   res.json(toSettingsJson(r.rows[0], r.rows[0].has_logo));

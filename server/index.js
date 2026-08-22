@@ -1,5 +1,6 @@
 // Point d'entrée pour le développement local (npm start).
 // Sur Vercel, c'est api/index.js qui sert d'entrée (voir ce fichier pour plus de détails).
+require("dotenv").config(); // charge automatiquement le fichier .env (local uniquement)
 const path = require("path");
 const express = require("express");
 const app = require("./app");
