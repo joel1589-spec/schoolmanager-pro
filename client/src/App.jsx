@@ -78,7 +78,7 @@ function EcoleApp() {
   }
 
   return (
-    <Shell brandEyebrow="Établissement" brandName={ecoleName || "…"}>
+    <Shell brandEyebrow="Établissement" brandName={ecoleName || "…"} links={links}>
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/eleves" element={<Students />} />
