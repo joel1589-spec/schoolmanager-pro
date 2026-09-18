@@ -66,14 +66,26 @@ function BandeauHorsLigne() {
 
 function Shell({ links, brandName, brandEyebrow, children }) {
   const { user, logout } = useAuth();
+  const [menuOuvert, setMenuOuvert] = useState(false);
+  const fermer = () => setMenuOuvert(false);
+
   return (
     <div className="app-shell">
-      <aside className="sidebar">
+      <div className="mobile-topbar">
+        <button className="hamburger-btn" onClick={() => setMenuOuvert(true)} aria-label="Ouvrir le menu">☰</button>
+        <div className="brand" style={{ fontSize: "1rem", marginBottom: 0 }}>{brandName}</div>
+        <span style={{ width: 38 }} />
+      </div>
+
+      <div className={"sidebar-backdrop" + (menuOuvert ? " visible" : "")} onClick={fermer} />
+
+      <aside className={"sidebar" + (menuOuvert ? " mobile-open" : "")}>
+        <button className="sidebar-close-btn" onClick={fermer} aria-label="Fermer le menu">✕</button>
         <div className="brand-eyebrow">{brandEyebrow}</div>
         <div className="brand">{brandName}</div>
         <nav style={{ marginTop: 18, flex: 1 }}>
           {links.map((l) => (
-            <NavLink key={l.to} to={l.to} end={l.end} className={({ isActive }) => "nav-link" + (isActive ? " active" : "")}>
+            <NavLink key={l.to} to={l.to} end={l.end} onClick={fermer} className={({ isActive }) => "nav-link" + (isActive ? " active" : "")}>
               {l.label}
             </NavLink>
           ))}
