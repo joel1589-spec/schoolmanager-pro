@@ -59,6 +59,19 @@ export default function Results() {
         )}
       </div>
 
+      {niveau && classe && rows.length > 0 && (
+        <p style={{ marginTop: -6, marginBottom: 14 }}>
+          <a
+            className="btn btn-brass btn-sm"
+            style={{ textDecoration: "none" }}
+            href={api.bulletinsClasseUrl({ niveau, classe, serie: serie || "", periode })}
+            target="_blank" rel="noreferrer"
+          >
+            🖨 Imprimer les bulletins de la classe (par ordre de mérite)
+          </a>
+        </p>
+      )}
+
       {error && <p className="error-text">{error}</p>}
 
       <div className="card" style={{ padding: 0, overflow: "hidden" }}>

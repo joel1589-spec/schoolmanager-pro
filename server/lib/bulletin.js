@@ -293,6 +293,179 @@ function buildPublic(doc, ctx) {
   drawSignatures(doc, ctx, "Le Professeur Titulaire");
 }
 
+// ---------- Modèle COMPACT : tableau dense, idéal pour économiser le papier ----------
+function buildCompact(doc, ctx) {
+  drawHeader(doc, ctx, "BULLETIN DE NOTES");
+  drawStudentInfo(doc, ctx);
+
+  const cols = [["Matière", 200], ["Moy./20", 60], ["Coef", 45], ["Points", 60], ["Appréciation", 150]];
+  let x = 40;
+  const top = doc.y;
+  doc.font("Helvetica-Bold").fontSize(8);
+  for (const [label, w] of cols) { doc.text(label, x + 3, top, { width: w - 6, align: "center" }); x += w; }
+  doc.moveTo(40, top + 15).lineTo(555, top + 15).stroke();
+
+  let y = top + 20;
+  doc.font("Helvetica").fontSize(8.5);
+  for (const l of ctx.lignes) {
+    if (y > 730) { doc.addPage(); y = 40; }
+    x = 40;
+    const vals = [l.matiere, l.noteGenerale || "-", l.coefficient, Math.round(l.noteFinale * 100) / 100, l.appreciation];
+    for (let i = 0; i < cols.length; i++) {
+      const [, w] = cols[i];
+      doc.text(String(vals[i]), x + 3, y, { width: w - 6, align: i === 0 ? "left" : "center" });
+      x += w;
+    }
+    y += 15;
+    doc.moveTo(40, y - 3).lineTo(555, y - 3).strokeOpacity(0.25).stroke().strokeOpacity(1);
+  }
+
+  doc.font("Helvetica-Bold").fontSize(8).text(`TOTAUX — Coef : ${ctx.totalCoef}   Points : ${ctx.totalPoints}`, 42, y + 4);
+  doc.y = y + 24;
+
+  doc.font("Helvetica-Bold").fontSize(11).text(
+    `Moyenne : ${ctx.moyenne} / 20      Rang : ${ctx.rangClasse ? ctx.rangClasse.rang : "-"} / ${ctx.stats.effectif}      ${ctx.mention}`,
+    40, doc.y + 6
+  );
+  doc.font("Helvetica").fontSize(8).text(
+    `Moyenne de la classe : ${ctx.stats.moyenneClasse}   (min ${ctx.stats.min} — max ${ctx.stats.max})`, 40, doc.y + 4
+  );
+  doc.font("Helvetica-Bold").fontSize(9).text(`Décision : ${ctx.decision}`, 40, doc.y + 10);
+  drawSignatures(doc, ctx, "Le Titulaire");
+}
+
+// ---------- Modèle DÉTAILLÉ : toutes les évaluations + zone d'appréciation ----------
+function buildDetaille(doc, ctx) {
+  drawHeader(doc, ctx, "BULLETIN SCOLAIRE DÉTAILLÉ");
+  drawStudentInfo(doc, ctx);
+
+  const cols = [
+    ["Matière", 112], ["Prof.", 70], ["Int.", 34], ["Dev.", 34], ["Moy.Cl", 42], ["Comp.", 38],
+    ["Moy/20", 42], ["Coef", 30], ["Points", 40], ["Rg", 26], ["Appréciation", 47],
+  ];
+  let x = 40;
+  const top = doc.y;
+  doc.font("Helvetica-Bold").fontSize(6.8);
+  for (const [label, w] of cols) { doc.text(label, x + 2, top, { width: w - 4, align: "center" }); x += w; }
+  doc.moveTo(40, top + 14).lineTo(555, top + 14).stroke();
+
+  let y = top + 18;
+  const categories = [...new Set(ctx.lignes.map((l) => l.categorie))];
+  for (const cat of categories) {
+    if (y > 720) { doc.addPage(); y = 40; }
+    doc.font("Helvetica-Bold").fontSize(7).fillColor("#1F3B39").text(cat.toUpperCase(), 42, y);
+    doc.fillColor("#000");
+    y += 12;
+    for (const l of ctx.lignes.filter((v) => v.categorie === cat)) {
+      if (y > 735) { doc.addPage(); y = 40; }
+      x = 40;
+      const noteCl = Math.round(((l.interro + l.devoir) / 2) * 100) / 100;
+      const vals = [l.matiere, l.professeur || "-", l.interro || "-", l.devoir || "-", noteCl || "-",
+        l.composition || "-", l.noteGenerale, l.coefficient, Math.round(l.noteFinale * 100) / 100,
+        l.rang || "-", l.appreciation];
+      doc.font("Helvetica").fontSize(6.8);
+      for (let i = 0; i < cols.length; i++) {
+        const [, w] = cols[i];
+        doc.text(String(vals[i]), x + 2, y, { width: w - 4, align: i <= 1 ? "left" : "center" });
+        x += w;
+      }
+      y += 13;
+    }
+  }
+  doc.moveTo(40, y).lineTo(555, y).stroke();
+  doc.font("Helvetica-Bold").fontSize(8).text(`TOTAL — Coef : ${ctx.totalCoef}    Points : ${ctx.totalPoints}`, 42, y + 5);
+  doc.y = y + 22;
+
+  doc.font("Helvetica-Bold").fontSize(10).text(
+    `Moyenne du ${ctx.periode} : ${ctx.moyenne} / 20     Rang : ${ctx.rangClasse ? ctx.rangClasse.rang : "-"} / ${ctx.stats.effectif}     Mention : ${ctx.mention}`,
+    40, doc.y + 4
+  );
+  doc.font("Helvetica").fontSize(8).text(
+    `Moy. de la classe : ${ctx.stats.moyenneClasse} / 20      Plus forte : ${ctx.stats.max}      Plus faible : ${ctx.stats.min}`, 40, doc.y + 4
+  );
+
+  if (ctx.rappelMoyennes.length > 0 || ctx.moyenneAnnuelle !== null) {
+    doc.font("Helvetica-Bold").fontSize(8.5).text("Rappel des moyennes", 40, doc.y + 10);
+    doc.font("Helvetica").fontSize(8);
+    for (const r of ctx.rappelMoyennes) doc.text(`${r.periode} : ${r.moyenne} / 20`, 40, doc.y + 2);
+    if (ctx.moyenneAnnuelle !== null) doc.font("Helvetica-Bold").text(`Moyenne annuelle : ${ctx.moyenneAnnuelle} / 20`, 40, doc.y + 3);
+  }
+
+  const yObs = doc.y + 12;
+  doc.font("Helvetica-Bold").fontSize(8.5).text("Appréciation générale du conseil de classe", 40, yObs);
+  doc.rect(40, yObs + 13, 515, 42).stroke("#C9BFA4");
+  doc.font("Helvetica").fontSize(8.5).text(ctx.decision, 46, yObs + 18, { width: 500 });
+  doc.y = yObs + 62;
+
+  doc.font("Helvetica-Bold").fontSize(8.5).text("Conduite :", 40, doc.y);
+  doc.font("Helvetica").text("....................        Assiduité : ....................        Discipline : ....................", 100, doc.y - 10);
+  drawSignatures(doc, ctx, "Le Professeur Titulaire");
+}
+
+// ---------- Modèle PRIMAIRE : sans coefficients, avec acquis ----------
+function buildPrimaire(doc, ctx) {
+  drawHeader(doc, ctx, "BULLETIN DE L'ÉCOLE PRIMAIRE");
+  drawStudentInfo(doc, ctx);
+
+  const cols = [["Discipline", 190], ["Note /20", 70], ["Moyenne classe", 90], ["Niveau atteint", 165]];
+  let x = 40;
+  const top = doc.y;
+  doc.font("Helvetica-Bold").fontSize(8.5);
+  for (const [label, w] of cols) { doc.text(label, x + 3, top, { width: w - 6, align: "center" }); x += w; }
+  doc.moveTo(40, top + 16).lineTo(555, top + 16).stroke();
+
+  let y = top + 21;
+  const categories = [...new Set(ctx.lignes.map((l) => l.categorie))];
+  for (const cat of categories) {
+    if (y > 700) { doc.addPage(); y = 40; }
+    doc.font("Helvetica-Bold").fontSize(8).fillColor("#B08D57").text(cat.toUpperCase(), 42, y);
+    doc.fillColor("#000");
+    y += 14;
+    for (const l of ctx.lignes.filter((v) => v.categorie === cat)) {
+      if (y > 730) { doc.addPage(); y = 40; }
+      x = 40;
+      const vals = [l.matiere, l.noteGenerale || "-", ctx.stats.moyenneClasse, l.appreciation];
+      doc.font("Helvetica").fontSize(9);
+      for (let i = 0; i < cols.length; i++) {
+        const [, w] = cols[i];
+        doc.text(String(vals[i]), x + 3, y, { width: w - 6, align: i === 0 ? "left" : "center" });
+        x += w;
+      }
+      y += 17;
+      doc.moveTo(40, y - 4).lineTo(555, y - 4).strokeOpacity(0.25).stroke().strokeOpacity(1);
+    }
+  }
+  doc.y = y + 8;
+
+  doc.font("Helvetica-Bold").fontSize(11).text(
+    `Moyenne générale : ${ctx.moyenne} / 20      Rang : ${ctx.rangClasse ? ctx.rangClasse.rang : "-"} / ${ctx.stats.effectif}`,
+    40, doc.y + 4
+  );
+  doc.font("Helvetica-Bold").fontSize(10).text(`Appréciation : ${ctx.mention}`, 40, doc.y + 6);
+
+  const yObs = doc.y + 14;
+  doc.font("Helvetica-Bold").fontSize(9).text("Observations du maître / de la maîtresse", 40, yObs);
+  doc.rect(40, yObs + 14, 515, 50).stroke("#C9BFA4");
+  doc.font("Helvetica").fontSize(9).text(ctx.decision, 46, yObs + 20, { width: 500 });
+  doc.y = yObs + 72;
+
+  drawSignatures(doc, ctx, "Le Maître / La Maîtresse");
+}
+
+const MODELES = {
+  Prive: buildPrive,
+  Public: buildPublic,
+  Compact: buildCompact,
+  Detaille: buildDetaille,
+  Primaire: buildPrimaire,
+};
+
+function choisirModele(settings, eleveNiveau) {
+  // Le modèle configuré par l'école prime ; à défaut on retombe sur le type d'établissement.
+  const nom = settings.modele_bulletin || (settings.type === "Public" ? "Public" : "Prive");
+  return MODELES[nom] || buildPrive;
+}
+
 async function genererBulletinPDF(idEleve, etablissementId, periode, res) {
   const ctx = await buildContext(idEleve, etablissementId, periode);
   if (!ctx) { res.status(404).json({ error: "Élève introuvable" }); return; }
@@ -302,10 +475,41 @@ async function genererBulletinPDF(idEleve, etablissementId, periode, res) {
   res.setHeader("Content-Disposition", `inline; filename="bulletin_${ctx.eleve.Nom}_${ctx.eleve.Prenom}.pdf"`);
   doc.pipe(res);
 
-  if (ctx.settings.type === "Public") buildPublic(doc, ctx);
-  else buildPrive(doc, ctx);
+  const build = choisirModele(ctx.settings, ctx.eleve.Niveau);
+  build(doc, ctx);
 
   doc.end();
 }
 
-module.exports = { genererBulletinPDF };
+// Génère les bulletins de toute une classe dans un seul PDF,
+// rangés automatiquement par ordre de mérite (1er, 2e, 3e...).
+async function genererBulletinsClassePDF({ etablissementId, niveau, classe, serie, periode }, res) {
+  const settings = await getSettingsRaw(etablissementId);
+  const periodeFinale = periode || settings.periode_actuelle;
+
+  const rows = await classement({ etablissementId, niveau, classe, serie, periode: periodeFinale });
+  if (rows.length === 0) {
+    res.status(404).json({ error: "Aucun élève dans cette classe" });
+    return;
+  }
+
+  const doc = new PDFDocument({ size: "A4", margin: 40 });
+  res.setHeader("Content-Type", "application/pdf");
+  const nomFichier = `bulletins_${classe}${serie ? "_" + serie : ""}_${periodeFinale}`.replace(/\s+/g, "-");
+  res.setHeader("Content-Disposition", `inline; filename="${nomFichier}.pdf"`);
+  doc.pipe(res);
+
+  let premier = true;
+  for (const eleveRang of rows) { // déjà triés par moyenne décroissante = ordre de mérite
+    const ctx = await buildContext(eleveRang.ID, etablissementId, periodeFinale);
+    if (!ctx) continue;
+    if (!premier) doc.addPage();
+    premier = false;
+    const build = choisirModele(ctx.settings, ctx.eleve.Niveau);
+    build(doc, ctx);
+  }
+
+  doc.end();
+}
+
+module.exports = { genererBulletinPDF, genererBulletinsClassePDF, MODELES_DISPONIBLES: Object.keys(MODELES) };

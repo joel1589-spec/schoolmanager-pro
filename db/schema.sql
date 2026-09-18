@@ -42,9 +42,11 @@ CREATE TABLE IF NOT EXISTS enseignants (
   email TEXT DEFAULT ''
 );
 
-ALTER TABLE utilisateurs
-  ADD CONSTRAINT fk_utilisateurs_enseignant
-  FOREIGN KEY (id_enseignant) REFERENCES enseignants(id) ON DELETE SET NULL;
+DO $$ BEGIN
+  ALTER TABLE utilisateurs
+    ADD CONSTRAINT fk_utilisateurs_enseignant
+    FOREIGN KEY (id_enseignant) REFERENCES enseignants(id) ON DELETE SET NULL;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 CREATE TABLE IF NOT EXISTS affectations (
   id SERIAL PRIMARY KEY,
@@ -172,5 +174,78 @@ CREATE INDEX IF NOT EXISTS idx_utilisateurs_eleve ON utilisateurs(id_eleve);
 -- Permet au Super Administrateur de suspendre temporairement l'accès à une école
 -- (ex : problème à régler) sans supprimer ses données.
 ALTER TABLE etablissements ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT true;
+
+-- ============================================================================
+-- MIGRATION : écolage, parents, messagerie, cartes scolaires, modèles de bulletin
+-- ============================================================================
+
+-- Modèle de bulletin choisi par l'école
+ALTER TABLE etablissements ADD COLUMN IF NOT EXISTS modele_bulletin TEXT NOT NULL DEFAULT 'Prive';
+ALTER TABLE etablissements ADD COLUMN IF NOT EXISTS devise TEXT NOT NULL DEFAULT 'FCFA';
+
+-- Barème d'écolage : par niveau, ou plus précisément par classe/série.
+-- La ligne la plus spécifique qui correspond à l'élève l'emporte.
+CREATE TABLE IF NOT EXISTS baremes_ecolage (
+  id SERIAL PRIMARY KEY,
+  etablissement_id INTEGER NOT NULL REFERENCES etablissements(id) ON DELETE CASCADE,
+  niveau TEXT NOT NULL,
+  classe TEXT DEFAULT '',
+  serie TEXT DEFAULT '',
+  annee TEXT DEFAULT '',
+  montant_total NUMERIC NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS paiements (
+  id SERIAL PRIMARY KEY,
+  etablissement_id INTEGER NOT NULL REFERENCES etablissements(id) ON DELETE CASCADE,
+  id_eleve INTEGER NOT NULL REFERENCES eleves(id) ON DELETE CASCADE,
+  montant NUMERIC NOT NULL,
+  mode TEXT DEFAULT 'Espèces',
+  motif TEXT DEFAULT 'Écolage',
+  numero_recu TEXT NOT NULL,
+  encaisse_par TEXT DEFAULT '',
+  date_paiement TIMESTAMPTZ NOT NULL DEFAULT now(),
+  annee TEXT DEFAULT ''
+);
+
+-- Un compte parent peut suivre plusieurs élèves
+CREATE TABLE IF NOT EXISTS parents_eleves (
+  id SERIAL PRIMARY KEY,
+  etablissement_id INTEGER NOT NULL REFERENCES etablissements(id) ON DELETE CASCADE,
+  id_utilisateur INTEGER NOT NULL REFERENCES utilisateurs(id) ON DELETE CASCADE,
+  id_eleve INTEGER NOT NULL REFERENCES eleves(id) ON DELETE CASCADE,
+  lien TEXT DEFAULT 'Parent'
+);
+
+-- Messagerie interne : parents <-> enseignants / administration, et notifications système
+CREATE TABLE IF NOT EXISTS messages (
+  id SERIAL PRIMARY KEY,
+  etablissement_id INTEGER NOT NULL REFERENCES etablissements(id) ON DELETE CASCADE,
+  expediteur_id INTEGER REFERENCES utilisateurs(id) ON DELETE SET NULL,
+  destinataire_id INTEGER NOT NULL REFERENCES utilisateurs(id) ON DELETE CASCADE,
+  id_eleve INTEGER REFERENCES eleves(id) ON DELETE SET NULL,
+  sujet TEXT DEFAULT '',
+  corps TEXT NOT NULL,
+  lu BOOLEAN NOT NULL DEFAULT false,
+  type TEXT DEFAULT 'Message',
+  envoye_le TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS cartes_scolaires (
+  id SERIAL PRIMARY KEY,
+  etablissement_id INTEGER NOT NULL REFERENCES etablissements(id) ON DELETE CASCADE,
+  id_eleve INTEGER NOT NULL REFERENCES eleves(id) ON DELETE CASCADE,
+  numero TEXT NOT NULL,
+  annee TEXT DEFAULT '',
+  emise_le TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_baremes_etab ON baremes_ecolage(etablissement_id);
+CREATE INDEX IF NOT EXISTS idx_paiements_etab ON paiements(etablissement_id);
+CREATE INDEX IF NOT EXISTS idx_paiements_eleve ON paiements(id_eleve);
+CREATE INDEX IF NOT EXISTS idx_parents_user ON parents_eleves(id_utilisateur);
+CREATE INDEX IF NOT EXISTS idx_parents_eleve ON parents_eleves(id_eleve);
+CREATE INDEX IF NOT EXISTS idx_messages_dest ON messages(destinataire_id, lu);
+CREATE INDEX IF NOT EXISTS idx_cartes_eleve ON cartes_scolaires(id_eleve);
 
 

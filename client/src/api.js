@@ -1,4 +1,10 @@
+import { ajouterAFile } from "./lib/offline";
+
 const BASE = "/api";
+
+// Écritures autorisées hors connexion : elles sont mises en file d'attente puis
+// rejouées automatiquement au retour du réseau (saisie de notes, présences).
+const BUFFERISABLE = ["/notes", "/notes/feuille", "/attendance"];
 
 function getToken() {
   return localStorage.getItem("smp_token");
@@ -6,13 +12,29 @@ function getToken() {
 
 async function request(path, options = {}) {
   const token = getToken();
-  const res = await fetch(`${BASE}${path}`, {
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    ...options,
-  });
+  let res;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      ...options,
+    });
+  } catch (err) {
+    // Panne réseau : on met l'écriture en attente si elle peut être rejouée plus tard
+    const method = (options.method || "GET").toUpperCase();
+    const bufferisable = method !== "GET" && BUFFERISABLE.some((p) => path.startsWith(p));
+    if (bufferisable) {
+      ajouterAFile({
+        url: `${BASE}${path}`,
+        method,
+        body: options.body ? JSON.parse(options.body) : null,
+      });
+      return { differe: true, message: "Hors connexion — enregistré localement, sera synchronisé automatiquement." };
+    }
+    throw new Error("Vous êtes hors connexion. Cette action nécessite internet.");
+  }
   if (res.status === 401) {
     localStorage.removeItem("smp_token");
     localStorage.removeItem("smp_user");
@@ -137,4 +159,39 @@ export const api = {
 
   // Espace élève
   getMonEspace: () => request("/mon-espace"),
+
+  // Emploi du temps personnel de l'enseignant
+  getMonEmploiDuTemps: () => request("/timetable/mon-emploi"),
+
+  // Écolage / caisse
+  getBaremes: () => request("/ecolage/baremes"),
+  createBareme: (d) => request("/ecolage/baremes", { method: "POST", body: JSON.stringify(d) }),
+  deleteBareme: (id) => request(`/ecolage/baremes/${id}`, { method: "DELETE" }),
+  getSituationEleve: (id) => request(`/ecolage/eleve/${id}`),
+  getSituations: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return request(`/ecolage/situations${q ? `?${q}` : ""}`);
+  },
+  createPaiement: (d) => request("/ecolage/paiements", { method: "POST", body: JSON.stringify(d) }),
+  deletePaiement: (id) => request(`/ecolage/paiements/${id}`, { method: "DELETE" }),
+  getSyntheseEcolage: () => request("/ecolage/synthese"),
+  recuUrl: (idPaiement) => `${BASE}/ecolage/recu/${idPaiement}?token=${encodeURIComponent(getToken() || "")}`,
+
+  // Parents
+  getParents: () => request("/parents"),
+  createParent: (d) => request("/parents", { method: "POST", body: JSON.stringify(d) }),
+  reinitialiserParent: (id) => request(`/parents/${id}/reinitialiser`, { method: "POST" }),
+  deleteParent: (id) => request(`/parents/${id}`, { method: "DELETE" }),
+  getMesEnfants: () => request("/parents/mes-enfants"),
+
+  // Messagerie
+  getMessages: () => request("/messages"),
+  getContacts: () => request("/messages/contacts"),
+  getNonLus: () => request("/messages/non-lus"),
+  sendMessage: (d) => request("/messages", { method: "POST", body: JSON.stringify(d) }),
+  marquerLu: (id) => request(`/messages/${id}/lu`, { method: "POST" }),
+
+  // Bulletins
+  getModelesBulletin: () => request("/bulletin/modeles"),
+  bulletinsClasseUrl: (params) => `${BASE}/bulletin/classe?${new URLSearchParams({ ...params, token: getToken() || "" })}`,
 };

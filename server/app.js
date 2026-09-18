@@ -23,6 +23,10 @@ app.use("/api/exams", require("./routes/exams"));
 app.use("/api/matieres", require("./routes/matieres"));
 app.use("/api/settings", require("./routes/settings").router);
 app.use("/api/mon-espace", require("./routes/portail-eleve"));
+app.use("/api/ecolage", require("./routes/ecolage"));
+app.use("/api/parents", require("./routes/parents"));
+app.use("/api/messages", require("./routes/messages"));
+app.use("/api/cartes", require("./routes/cartes"));
 
 // Erreurs non interceptées (ex : upload multer trop volumineux) -> réponse JSON propre
 app.use((err, req, res, next) => {

@@ -33,6 +33,24 @@ router.get("/", async (req, res) => {
   res.json(rows);
 });
 
+// Emploi du temps personnel d'un enseignant, toutes classes confondues, en une seule grille.
+router.get("/mon-emploi", requireRole("Enseignant"), async (req, res) => {
+  const compteRes = await query("SELECT id_enseignant FROM utilisateurs WHERE id = $1", [req.user.id]);
+  const idEnseignant = compteRes.rows[0]?.id_enseignant;
+  if (!idEnseignant) return res.json([]);
+
+  const r = await query(
+    `SELECT * FROM emploi_du_temps WHERE etablissement_id = $1 AND id_enseignant = $2`,
+    [req.user.etablissementId, idEnseignant]
+  );
+  const rows = r.rows.map((row) => ({
+    ID: row.id, Niveau: row.niveau, Classe: row.classe, Serie: row.serie, Jour: row.jour,
+    HeureDebut: row.heure_debut, HeureFin: row.heure_fin, Matiere: row.matiere, Salle: row.salle,
+  }));
+  rows.sort((a, b) => JOUR_ORDRE.indexOf(a.Jour) - JOUR_ORDRE.indexOf(b.Jour) || String(a.HeureDebut).localeCompare(b.HeureDebut));
+  res.json(rows);
+});
+
 router.post("/", requireRole("Administrateur"), async (req, res) => {
   const { Niveau, Classe, Serie, Jour, HeureDebut, HeureFin, Matiere, IDEnseignant, Salle } = req.body;
   if (!Niveau || !Classe || !Jour || !HeureDebut || !HeureFin || !Matiere) {

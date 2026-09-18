@@ -81,6 +81,22 @@ export default function Settings() {
             </div>
 
             <div className="form-field" style={{ marginBottom: 12 }}>
+              <label>Modèle de bulletin</label>
+              <select value={form.ModeleBulletin || "Prive"} onChange={(e) => setForm({ ...form, ModeleBulletin: e.target.value })}>
+                <option value="Prive">Privé — détaillé par matière (notes de classe, compo, rang)</option>
+                <option value="Public">Public / Officiel — groupé par catégorie</option>
+                <option value="Compact">Compact — une ligne par matière, économe en papier</option>
+                <option value="Detaille">Détaillé — toutes les évaluations + appréciations</option>
+                <option value="Primaire">Primaire — sans coefficients, niveau atteint</option>
+              </select>
+            </div>
+
+            <div className="form-field" style={{ marginBottom: 12 }}>
+              <label>Devise (écolage et reçus)</label>
+              <input value={form.Devise || "FCFA"} onChange={(e) => setForm({ ...form, Devise: e.target.value })} />
+            </div>
+
+            <div className="form-field" style={{ marginBottom: 12 }}>
               <label>Ministère (ligne d'en-tête)</label>
               <input value={form.Ministere} onChange={(e) => setForm({ ...form, Ministere: e.target.value })} />
             </div>
