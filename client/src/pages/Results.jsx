@@ -60,7 +60,7 @@ export default function Results() {
       </div>
 
       {niveau && classe && rows.length > 0 && (
-        <p style={{ marginTop: -6, marginBottom: 14 }}>
+        <p style={{ marginTop: -6, marginBottom: 14, display: "flex", gap: 10, flexWrap: "wrap" }}>
           <a
             className="btn btn-brass btn-sm"
             style={{ textDecoration: "none" }}
@@ -68,6 +68,14 @@ export default function Results() {
             target="_blank" rel="noreferrer"
           >
             🖨 Imprimer les bulletins de la classe (par ordre de mérite)
+          </a>
+          <a
+            className="btn btn-ghost btn-sm"
+            style={{ textDecoration: "none" }}
+            href={api.cartesClasseUrl({ niveau, classe, serie: serie || "" })}
+            target="_blank" rel="noreferrer"
+          >
+            🪪 Imprimer les cartes scolaires de la classe
           </a>
         </p>
       )}

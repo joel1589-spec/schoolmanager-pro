@@ -194,4 +194,8 @@ export const api = {
   // Bulletins
   getModelesBulletin: () => request("/bulletin/modeles"),
   bulletinsClasseUrl: (params) => `${BASE}/bulletin/classe?${new URLSearchParams({ ...params, token: getToken() || "" })}`,
+
+  // Cartes scolaires
+  carteEleveUrl: (idEleve) => `${BASE}/cartes/eleve/${idEleve}?token=${encodeURIComponent(getToken() || "")}`,
+  cartesClasseUrl: (params) => `${BASE}/cartes/classe?${new URLSearchParams({ ...params, token: getToken() || "" })}`,
 };

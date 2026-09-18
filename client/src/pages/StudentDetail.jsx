@@ -96,6 +96,11 @@ export default function StudentDetail() {
               📄 Générer le bulletin PDF
             </a>
           )}
+          {isAdmin && (
+            <a href={api.carteEleveUrl(id)} target="_blank" rel="noreferrer" className="btn btn-ghost" style={{ textDecoration: "none" }}>
+              🪪 Carte scolaire
+            </a>
+          )}
         </div>
       </header>
 
